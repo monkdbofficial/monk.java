@@ -2,11 +2,9 @@ package com.monkdb.types;
 
 @FunctionalInterface
 public interface ConverterFunction<Input, Output> {
-    // Convert an input value to the desired output
     Output apply(Input value);
 
-    // Convenience method to handle null values like TypeScript's null/undefined
-    default Output applyWithNullCheck(Input value) {
-        return (value == null) ? null : apply(value);
+    static <T> T safeApply(ConverterFunction<T, T> fn, T value) {
+        return value == null ? null : fn.apply(value);
     }
 }

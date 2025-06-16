@@ -1,28 +1,13 @@
 package com.monkdb.types;
 
-public abstract class ColumnTypeDefinition {
-    public static class SimpleColumnType extends ColumnTypeDefinition {
-        private final DataType dataType;
+/**
+ * Represents either a base DataType or a nested array type like [ARRAY, INTEGER].
+ */
+public sealed interface ColumnTypeDefinition permits ColumnTypeDefinition.BaseType, ColumnTypeDefinition.ArrayType {
 
-        public SimpleColumnType(DataType dataType) {
-            this.dataType = dataType;
-        }
-
-        public DataType getDataType() {
-            return dataType;
-        }
+    record BaseType(DataType type) implements ColumnTypeDefinition {
     }
 
-    public static class ArrayColumnType extends ColumnTypeDefinition {
-        private final ColumnTypeDefinition elementType;
-
-        public ArrayColumnType(ColumnTypeDefinition elementType) {
-            this.elementType = elementType;
-        }
-
-        public ColumnTypeDefinition getElementType() {
-            return elementType;
-        }
+    record ArrayType(ColumnTypeDefinition elementType) implements ColumnTypeDefinition {
     }
 }
-
