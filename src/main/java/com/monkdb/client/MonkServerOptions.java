@@ -1,18 +1,18 @@
 package com.monkdb.client;
 
-public final class MonkServerOptions {
+public class MonkServerOptions {
+
     private final String username;
     private final String password;
     private final String schema;
 
-    // Constructor initializes the options
-    private MonkServerOptions(String username, String password, String schema) {
+    // Constructor
+    public MonkServerOptions(String username, String password, String schema) {
         this.username = username;
         this.password = password;
         this.schema = schema;
     }
 
-    // Getters for accessing the properties
     public String getUsername() {
         return username;
     }
@@ -25,39 +25,34 @@ public final class MonkServerOptions {
         return schema;
     }
 
-    // Builder pattern for constructing options in an immutable way
+    public static Builder builder() {
+        return new Builder();
+    }
+
     public static class Builder {
         private String username;
         private String password;
         private String schema;
 
-        // Setters with validation
-        public Builder setUsername(String username) {
+        public Builder username(String username) {
             this.username = username;
             return this;
         }
 
-        public Builder setPassword(String password) {
+        public Builder password(String password) {
             this.password = password;
             return this;
         }
 
-        public Builder setSchema(String schema) {
+        public Builder schema(String schema) {
             this.schema = schema;
             return this;
         }
 
-        // Validate the options
-        private void validate() {
-            if (username == null || username.trim().isEmpty()) {
-                throw new IllegalArgumentException("Username cannot be null or empty");
-            }
-            // Password and schema are optional, so no validation needed
-        }
-
-        // Build the MonkServerOptions object
         public MonkServerOptions build() {
-            validate();
+            if (username == null || username.isBlank()) {
+                throw new IllegalArgumentException("Username is required");
+            }
             return new MonkServerOptions(username, password, schema);
         }
     }

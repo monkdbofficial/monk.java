@@ -3,7 +3,6 @@ package com.monkdb.client;
 import com.monkdb.exceptions.MonkConnectionError;
 import org.json.JSONObject;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -16,14 +15,15 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.logging.Logger;
 
 public class MonkServer {
 
     private static final Logger logger = Logger.getLogger(MonkServer.class.getName());
+
     private final String url;
     private final MonkServerOptions options;
+    private final HttpClient client = HttpClient.newHttpClient();
 
     public MonkServer(String url, MonkServerOptions options) {
         this.url = Objects.requireNonNull(url, "URL cannot be null");
@@ -37,67 +37,65 @@ public class MonkServer {
      * @param path    Path to the resource
      * @param body    Optional body of the request
      * @param headers Optional headers to include in the request
-     * @return A CompletableFuture wrapping the response
-     * @throws MonkConnectionError If there is a failure in sending the request
+     * @return A CompletableFuture wrapping the Response
      */
-    public CompletableFuture<Response> sendRequestAsync(String method, String path, InputStream body, Map<String, String> headers) throws MonkConnectionError {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                URL fullUrl = new URL(new URL(this.url), path);
-                URI uri;
-                try {
-                    uri = fullUrl.toURI();
-                } catch (URISyntaxException e) {
-                    logger.severe("Invalid URI: " + fullUrl.toString());
-                    throw new MonkConnectionError("Failed to create URI from URL: " + fullUrl.toString(), e);
-                }
+    public CompletableFuture<Response> sendRequest(String method, String path, InputStream body, Map<String, String> headers) {
+        return CompletableFuture.supplyAsync(() -> buildRequest(method, path, body, headers))
+                .thenCompose(request -> client.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream()))
+                .thenApply(response -> {
+                    try (InputStream responseStream = response.body()) {
+                        String responseData = new String(responseStream.readAllBytes());
+                        JSONObject json = responseData.isEmpty() ? null : new JSONObject(responseData);
 
-                HttpClient client = HttpClient.newHttpClient();
+                        Map<String, String> responseHeaders = new HashMap<>();
+                        response.headers().map().forEach((k, v) -> responseHeaders.put(k, String.join(",", v)));
 
-                HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                        .uri(uri)
-                        .method(method, body != null ? HttpRequest.BodyPublishers.ofInputStream(() -> body) : HttpRequest.BodyPublishers.noBody())
-                        .header("Accept", "application/json")
-                        .header("Content-Type", "application/json");
+                        logger.info("Received response: " + response.statusCode() + " " + responseData);
+                        return new Response(response.statusCode(), json, responseHeaders);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Error reading response", e);
+                    }
+                })
+                .exceptionally(ex -> {
+                    logger.severe("Failed request: " + ex.getMessage());
+                    throw new RuntimeException(new MonkConnectionError("Failed to send request", ex));
+                });
+    }
 
-                if (this.options.getUsername() != null) {
-                    String credentials = this.options.getUsername() + ":" + (this.options.getPassword() != null ? this.options.getPassword() : "");
-                    String encodedCredentials = Base64.getEncoder().encodeToString(credentials.getBytes());
-                    requestBuilder.header("Authorization", "Basic " + encodedCredentials);
-                }
+    private HttpRequest buildRequest(String method, String path, InputStream body, Map<String, String> headers) {
+        try {
+            URI uri = new URL(new URL(this.url), path).toURI();
+            HttpRequest.BodyPublisher bodyPublisher = (body != null)
+                    ? HttpRequest.BodyPublishers.ofInputStream(() -> body)
+                    : HttpRequest.BodyPublishers.noBody();
 
-                if (this.options.getSchema() != null) {
-                    requestBuilder.header("Default-Schema", this.options.getSchema());
-                }
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .method(method, bodyPublisher)
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json");
 
-                if (headers != null) {
-                    headers.forEach(requestBuilder::header);
-                }
-
-                HttpRequest request = requestBuilder.build();
-
-                HttpResponse<InputStream> response = client.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream()).get();
-
-                InputStream responseStream = response.body();
-                String responseData = new String(responseStream.readAllBytes());
-
-                JSONObject jsonResponse = responseData.isEmpty() ? null : new JSONObject(responseData);
-
-                logger.info("Received response: " + response.statusCode() + " " + responseData);
-
-                Map<String, String> responseHeaders = new HashMap<>();
-                response.headers().map().forEach((key, value) -> responseHeaders.put(key, String.join(",", value)));
-
-                return new Response(response.statusCode(), jsonResponse, responseHeaders);
-            } catch (IOException | InterruptedException | ExecutionException | MonkConnectionError e) {
-                logger.severe("Error sending request: " + e.getMessage());
-                try {
-                    throw new MonkConnectionError("Failed to send request", e);
-                } catch (MonkConnectionError ex) {
-                    throw new RuntimeException(ex);
-                }
+            if (options.getUsername() != null) {
+                String credentials = options.getUsername() + ":" + (options.getPassword() != null ? options.getPassword() : "");
+                String encoded = Base64.getEncoder().encodeToString(credentials.getBytes());
+                builder.header("Authorization", "Basic " + encoded);
             }
-        });
+
+            if (options.getSchema() != null) {
+                builder.header("Default-Schema", options.getSchema());
+            }
+
+            if (headers != null) {
+                headers.forEach(builder::header);
+            }
+
+            return builder.build();
+        } catch (URISyntaxException e) {
+            logger.severe("Invalid URI path: " + path);
+            throw new RuntimeException(new MonkConnectionError("Invalid URI", e));
+        } catch (Exception e) {
+            throw new RuntimeException(new MonkConnectionError("Failed to build request", e));
+        }
     }
 
     // Response object to wrap HTTP response details
