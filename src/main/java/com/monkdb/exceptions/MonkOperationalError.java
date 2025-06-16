@@ -13,4 +13,8 @@ public class MonkOperationalError extends MonkDatabaseError {
     public MonkOperationalError(String message, String errorTrace) {
         super(message, errorTrace);
     }
+
+    public MonkOperationalError(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

@@ -13,4 +13,8 @@ public class MonkConnectionError extends MonkOperationalError {
     public MonkConnectionError(String message, String errorTrace) {
         super(message, errorTrace);
     }
+
+    public MonkConnectionError(String message, Throwable cause) {
+        super(message, cause);
+    }
 }
