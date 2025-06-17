@@ -3,6 +3,7 @@ package com.monkdb.client;
 import com.monkdb.exceptions.MonkConnectionError;
 import org.json.JSONObject;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -10,6 +11,7 @@ import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -43,15 +45,26 @@ public class MonkServer {
         return CompletableFuture.supplyAsync(() -> buildRequest(method, path, body, headers))
                 .thenCompose(request -> client.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream()))
                 .thenApply(response -> {
-                    try (InputStream responseStream = response.body()) {
-                        String responseData = new String(responseStream.readAllBytes());
-                        JSONObject json = responseData.isEmpty() ? null : new JSONObject(responseData);
+                    try {
+                        InputStream responseStream = response.body(); // don't auto-close
+
+                        JSONObject json = null;
+                        String contentType = response.headers().firstValue("Content-Type").orElse("");
+
+                        if (contentType.contains("application/json")) {
+                            String responseData = new String(responseStream.readAllBytes());
+                            json = responseData.isEmpty() ? null : new JSONObject(responseData);
+                            // Re-wrap the stream since we've read it
+                            responseStream = new ByteArrayInputStream(responseData.getBytes(StandardCharsets.UTF_8));
+                            logger.info("Received JSON response: " + response.statusCode() + " " + responseData);
+                        } else {
+                            logger.info("Received non-JSON response: " + response.statusCode());
+                        }
 
                         Map<String, String> responseHeaders = new HashMap<>();
                         response.headers().map().forEach((k, v) -> responseHeaders.put(k, String.join(",", v)));
 
-                        logger.info("Received response: " + response.statusCode() + " " + responseData);
-                        return new Response(response.statusCode(), json, responseHeaders);
+                        return new Response(response.statusCode(), json, responseHeaders, responseStream);
                     } catch (Exception e) {
                         throw new RuntimeException("Error reading response", e);
                     }
@@ -98,7 +111,14 @@ public class MonkServer {
         }
     }
 
-    // Response object to wrap HTTP response details
-    public record Response(int status, JSONObject data, Map<String, String> headers) {
+    /**
+     * Represents an HTTP response from the server.
+     *
+     * @param status  the HTTP status code
+     * @param data    the parsed JSON data, if the response is JSON; otherwise null
+     * @param headers the response headers
+     * @param body    the response body as an InputStream; the caller is responsible for closing it
+     */
+    public record Response(int status, JSONObject data, Map<String, String> headers, InputStream body) {
     }
 }
